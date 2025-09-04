@@ -1,0 +1,7 @@
+---
+- name: Gather system information
+  hosts: all
+  tasks:
+    - name: Print hostname
+      debug:
+        msg: "This is host {{ inventory_hostname }} running {{ ansible_distribution }} {{ ansible_distribution_version }}"
