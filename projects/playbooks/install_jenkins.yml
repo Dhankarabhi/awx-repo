@@ -1,0 +1,74 @@
+---
+- name: Install Jenkins 2.526
+  hosts: all
+  become: yes
+
+  vars:
+    jenkins_version: "2.526"   # Weekly release (Sept 2, 2025)
+    jenkins_war_url: "https://updates.jenkins.io/download/war/{{ jenkins_version }}/jenkins.war"
+    jenkins_home: "/var/lib/jenkins"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install prerequisites
+      apt:
+        name:
+          - openjdk-17-jdk
+          - curl
+          - git
+        state: present
+
+    - name: Download Jenkins WAR
+      get_url:
+        url: "{{ jenkins_war_url }}"
+        dest: "/opt/jenkins-{{ jenkins_version }}.war"
+        mode: "0755"
+
+    - name: Ensure jenkins user exists
+      user:
+        name: jenkins
+        home: "{{ jenkins_home }}"
+        shell: /bin/bash
+        create_home: yes
+
+    - name: Create Jenkins home directory
+      file:
+        path: "{{ jenkins_home }}"
+        state: directory
+        owner: jenkins
+        group: jenkins
+        mode: "0755"
+
+    - name: Create Jenkins systemd service
+      copy:
+        dest: /etc/systemd/system/jenkins.service
+        content: |
+          [Unit]
+          Description=Jenkins CI
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=jenkins
+          Group=jenkins
+          ExecStart=/usr/bin/java -jar /opt/jenkins-{{ jenkins_version }}.war --httpPort=8080 --httpListenAddress=0.0.0.0
+          Restart=on-failure
+          Environment="JENKINS_HOME={{ jenkins_home }}"
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Reload systemd
+
+    - name: Start and enable Jenkins
+      systemd:
+        name: jenkins
+        state: started
+        enabled: yes
+
+  handlers:
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes

@@ -1,0 +1,39 @@
+---
+- name: Install Terraform 1.13.1
+  hosts: all
+  become: yes
+
+  vars:
+    terraform_version: "1.13.1"   # Released Aug 27, 2025
+    terraform_zip: "terraform_{{ terraform_version }}_linux_amd64.zip"
+    terraform_url: "https://releases.hashicorp.com/terraform/{{ terraform_version }}/{{ terraform_zip }}"
+
+  tasks:
+    - name: Install dependencies
+      apt:
+        name:
+          - unzip
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Download Terraform
+      get_url:
+        url: "{{ terraform_url }}"
+        dest: "/tmp/{{ terraform_zip }}"
+        mode: "0644"
+
+    - name: Unzip Terraform binary
+      unarchive:
+        src: "/tmp/{{ terraform_zip }}"
+        dest: /usr/local/bin/
+        remote_src: yes
+        mode: "0755"
+
+    - name: Verify Terraform installation
+      command: terraform --version
+      register: tf_ver
+      changed_when: false
+
+    - debug:
+        msg: "Installed Terraform version: {{ tf_ver.stdout }}"
