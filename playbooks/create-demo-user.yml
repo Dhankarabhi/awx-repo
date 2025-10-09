@@ -1,0 +1,53 @@
+---
+- name: Create non-sudo user on Xubuntu/Ubuntu
+  hosts: all
+  become: true
+  vars:
+    username: "testuser"        # <-- change username if needed
+    full_name: "Test User"
+    shell: "/bin/bash"
+    raw_password: "user"        # simple testing password
+    password_hash: "{{ raw_password | password_hash('sha512') }}"
+
+  tasks:
+    - name: Create the user (no sudo access)
+      ansible.builtin.user:
+        name: "{{ username }}"
+        comment: "{{ full_name }}"
+        shell: "{{ shell }}"
+        create_home: yes
+        groups: ""              # no extra groups
+        append: no
+        password: "{{ password_hash }}"
+      register: user_created
+
+    - name: Remove user from sudo group (if accidentally added)
+      ansible.builtin.command:
+        cmd: "gpasswd -d {{ username }} sudo"
+      ignore_errors: true
+
+    - name: Ensure no sudoers file exists for the user
+      ansible.builtin.file:
+        path: "/etc/sudoers.d/{{ username }}"
+        state: absent
+        validate: '/usr/sbin/visudo -cf %s'
+      ignore_errors: true
+
+    - name: Ensure /etc/sudoers has no line granting this user sudo
+      ansible.builtin.shell: |
+        grep -qP '^\s*{{ username }}\s+' /etc/sudoers && \
+        awk '!/^\s*{{ username }}\s+/' /etc/sudoers > /tmp/sudoers.{{ username }} && \
+        visudo -c -f /tmp/sudoers.{{ username }} && \
+        mv /tmp/sudoers.{{ username }} /etc/sudoers || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
+
+    - name: Ensure user's home ownership is correct
+      ansible.builtin.file:
+        path: "/home/{{ username }}"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        recurse: yes
+      when: user_created is defined
