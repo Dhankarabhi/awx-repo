@@ -1,0 +1,84 @@
+---
+- name: Enforce role-based sudo control
+  hosts: all
+  become: yes
+  vars:
+    sudo_groups:
+      - name: adminsudo
+        users: ["admin1", "opslead"]
+      - name: tlsudo
+        users: ["abhishek", "teamlead1"]
+      - name: qasudo
+        users: ["qauser"]
+      - name: devsudo
+        users: ["dev1", "dev2"]
+
+    sudoers_file: /etc/sudoers.d/tlgroup
+
+  tasks:
+
+    - name: Ensure required groups exist
+      group:
+        name: "{{ item.name }}"
+        state: present
+      loop: "{{ sudo_groups }}"
+
+    - name: Add users to respective groups
+      user:
+        name: "{{ item.1 }}"
+        groups: "{{ item.0.name }}"
+        append: yes
+      with_subelements:
+        - "{{ sudo_groups }}"
+        - users
+
+    - name: Deploy sudoers configuration
+      copy:
+        dest: "{{ sudoers_file }}"
+        owner: root
+        group: root
+        mode: '0440'
+        content: |
+          # Admin - full control
+          %adminsudo ALL=(ALL:ALL) ALL
+
+          # TLs - limited access
+          %tlsudo ALL=(ALL) NOPASSWD: \
+            /usr/bin/systemctl restart *, \
+            /usr/bin/systemctl stop *, \
+            /usr/bin/systemctl start *, \
+            /usr/bin/kill, \
+            /usr/bin/htop, \
+            /usr/bin/journalctl, \
+            /usr/bin/netstat, \
+            /usr/bin/lsof, \
+            /usr/bin/du, \
+            /usr/bin/git fsck, \
+            /usr/bin/git gc, \
+            /usr/bin/ss, \
+            /usr/bin/df, \
+            /usr/bin/tail, \
+            /usr/bin/less, \
+            /usr/bin/top, \
+            /usr/bin/uptime, \
+            /usr/bin/who, \
+            /usr/bin/id, \
+            /bin/ps, \
+            /bin/cat /etc/passwd
+
+          # QA - restart test services only
+          %qasudo ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart test-*
+
+          # Developers - no sudo access
+          %devsudo ALL=(ALL) NOPASSWD: !ALL
+
+    - name: Validate sudoers syntax
+      command: visudo -cf {{ sudoers_file }}
+      register: visudo_check
+      changed_when: false
+      failed_when: visudo_check.rc != 0
+
+    - name: Print sudoers validation result
+      debug:
+        msg: "Sudoers file syntax OK!"
+      when: visudo_check.rc == 0
