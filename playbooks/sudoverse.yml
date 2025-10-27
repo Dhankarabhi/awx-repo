@@ -5,13 +5,13 @@
   vars:
     sudo_groups:
       - name: adminsudo
-        users: ["admin1", "opslead"]
+        users: ["{{ default_user }}"]
       - name: tlsudo
-        users: ["abhishek", "teamlead1"]
+        users: ["teamlead1"]
       - name: qasudo
         users: ["qauser"]
       - name: devsudo
-        users: ["dev1", "dev2"]
+        users: ["dev1"]
 
     sudoers_file: /etc/sudoers.d/tlgroup
 
