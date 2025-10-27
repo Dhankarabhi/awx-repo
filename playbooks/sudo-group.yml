@@ -1,75 +1,63 @@
 ---
-- name: Enforce auto role-based sudo control based on hostname
+- name: Enforce role-based sudo control per environment
   hosts: all
   become: yes
-  gather_facts: yes
-
   vars:
-    sudoers_file: /etc/sudoers.d/tlgroup
-
-    all_sudo_groups:
-      admin:
-        group: adminsudo
+    sudo_groups:
+      - name: adminsudo
         users: ["admin"]
-      tl:
-        group: tlsudo
+        pattern: "^admin-vm-"
+      - name: tlsudo
         users: ["teamlead"]
-      qa:
-        group: qasudo
+        pattern: "^tl-vm-"
+      - name: qasudo
         users: ["qauser"]
-      dev:
-        group: devsudo
+        pattern: "^qa-vm-"
+      - name: devsudo
         users: ["dev1"]
+        pattern: "^dev-vm-"
+
+    sudoers_file_base: /etc/sudoers.d
 
   tasks:
-
-    - name: Determine environment type based on hostname
+    - name: Detect matching group based on hostname
       set_fact:
-        env_type: >-
-          {% if 'admin' in ansible_hostname %}
-            admin
-          {% elif 'tl' in ansible_hostname or 'teamlead' in ansible_hostname %}
-            tl
-          {% elif 'qa' in ansible_hostname %}
-            qa
-          {% elif 'dev' in ansible_hostname %}
-            dev
-          {% else %}
-            unknown
-          {% endif %}
+        matched_group: "{{ item }}"
+      loop: "{{ sudo_groups }}"
+      when: inventory_hostname is match(item.pattern)
+      register: matched_result
 
-    - name: Fail if environment type could not be determined
-      fail:
-        msg: "Unknown environment type for host {{ ansible_hostname }}! Hostname should include admin, tl, qa, or dev."
-      when: env_type == "unknown"
-
-    - name: Set sudo group and users for detected environment
+    - name: Extract matched group
       set_fact:
-        selected_group: "{{ all_sudo_groups[env_type].group }}"
-        selected_users: "{{ all_sudo_groups[env_type].users }}"
+        matched_group: "{{ (matched_result.results | selectattr('ansible_facts.matched_group','defined') | map(attribute='ansible_facts.matched_group') | list).0 }}"
+      when: matched_result is defined
 
     - name: Ensure required group exists
       group:
-        name: "{{ selected_group }}"
+        name: "{{ matched_group.name }}"
         state: present
+      when: matched_group is defined
 
     - name: Add users to respective group
       user:
         name: "{{ item }}"
-        groups: "{{ selected_group }}"
+        groups: "{{ matched_group.name }}"
         append: yes
-      loop: "{{ selected_users }}"
+      loop: "{{ matched_group.users }}"
+      when: matched_group is defined
 
-    - name: Deploy sudoers configuration file
+    - name: Deploy sudoers configuration for matched group
       copy:
-        dest: "{{ sudoers_file }}"
+        dest: "{{ sudoers_file_base }}/{{ matched_group.name }}"
         owner: root
         group: root
         mode: '0440'
         content: |
+          {% if matched_group.name == 'adminsudo' %}
           # Admin - full control
           %adminsudo ALL=(ALL:ALL) ALL
 
+          {% elif matched_group.name == 'tlsudo' %}
           # TLs - limited access
           %tlsudo ALL=(ALL) NOPASSWD: \
             /usr/bin/systemctl restart *, \
@@ -94,19 +82,25 @@
             /bin/ps, \
             /bin/cat /etc/passwd
 
+          {% elif matched_group.name == 'qasudo' %}
           # QA - restart test services only
           %qasudo ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart test-*
 
+          {% elif matched_group.name == 'devsudo' %}
           # Developers - no sudo access
           %devsudo ALL=(ALL) NOPASSWD: !ALL
+          {% endif %}
+      when: matched_group is defined
 
     - name: Validate sudoers syntax
-      command: visudo -cf {{ sudoers_file }}
+      command: visudo -cf "{{ sudoers_file_base }}/{{ matched_group.name }}"
       register: visudo_check
       changed_when: false
       failed_when: visudo_check.rc != 0
+      when: matched_group is defined
 
     - name: Print sudoers validation result
       debug:
-        msg: "Sudoers file syntax OK for {{ ansible_hostname }}!"
+        msg: "Sudoers file syntax OK for {{ matched_group.name }}!"
       when: visudo_check.rc == 0
+
