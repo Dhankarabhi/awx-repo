@@ -3,6 +3,7 @@
   hosts: all
   become: yes
   vars:
+    default_user: xubuntu
     sudo_groups:
       - name: adminsudo
         users: ["{{ default_user }}"]
