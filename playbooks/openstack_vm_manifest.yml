@@ -5,7 +5,7 @@
 
   vars:
     vm_name: "test"
-    export_root: "/exports"
+    export_root: "/exports/_jobs"
 
   tasks:
     - name: Get all servers in project
@@ -49,7 +49,7 @@
         path: "{{ export_root }}/{{ vm.name | default(vm_name) }}"
         state: directory
         mode: "2775"
-        become: false
+      become: false
 
 
     - name: Build manifest object
