@@ -46,9 +46,11 @@
 
     - name: Prepare export directory
       ansible.builtin.file:
-        path: "{{ export_root }}/{{ vm_name }}"
+        path: "{{ export_root }}/{{ vm.name | default(vm_name) }}"
         state: directory
         mode: "2775"
+        become: false
+
 
     - name: Build manifest object
       ansible.builtin.set_fact:
