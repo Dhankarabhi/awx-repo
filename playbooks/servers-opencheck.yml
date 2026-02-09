@@ -3,9 +3,8 @@
   gather_facts: false
 
   tasks:
-    - name: List all servers from all projects
+    - name: List servers in current project
       openstack.cloud.server_info:
-        all_projects: true
       register: result
 
     - debug:
