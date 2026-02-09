@@ -1,0 +1,10 @@
+- hosts: localhost
+  gather_facts: false
+  tasks:
+    - command: openstack --version
+      register: v
+    - debug: var=v.stdout
+
+    - command: sh -lc "python3 -c 'import openstack; print(openstack.__version__)'"
+      register: py
+    - debug: var=py.stdout
