@@ -1,0 +1,11 @@
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: List servers in current project
+      openstack.cloud.server_info:
+      register: r
+
+    - name: Show names + ids
+      ansible.builtin.debug:
+        msg: "{{ r.servers | map(attribute='name') | list }}"
