@@ -1,0 +1,97 @@
+- name: Export OpenStack VM manifest (metadata + ips + volumes)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # change this in AWX Survey/extra_vars
+    vm_name: "test"
+    export_root: "/exports"
+
+  tasks:
+    - name: Get server details by name
+      openstack.cloud.server_info:
+        server: "{{ vm_name }}"
+      register: srv
+
+    - name: Fail if VM not found
+      ansible.builtin.fail:
+        msg: "VM '{{ vm_name }}' not found in this OpenStack project."
+      when: (srv.servers | length) == 0
+
+    - name: Pick first match
+      ansible.builtin.set_fact:
+        server: "{{ srv.servers[0] }}"
+
+    - name: Get ports for this VM (IPs, SGs, networks)
+      openstack.cloud.port_info:
+        filters:
+          device_id: "{{ server.id }}"
+      register: ports
+
+    - name: Get volume attachments from server
+      ansible.builtin.set_fact:
+        vol_attachments: "{{ server.volumes | default([]) }}"
+
+    - name: Fetch volume details (if any)
+      openstack.cloud.volume_info:
+        filters:
+          id: "{{ item.id }}"
+      loop: "{{ vol_attachments }}"
+      register: vol_details
+      when: vol_attachments | length > 0
+
+    - name: Prepare export directory
+      ansible.builtin.file:
+        path: "{{ export_root }}/{{ vm_name }}"
+        state: directory
+        mode: "2775"
+
+    - name: Build manifest object
+      ansible.builtin.set_fact:
+        manifest:
+          exported_at: "{{ lookup('pipe','date -Iseconds') }}"
+          vm:
+            id: "{{ server.id }}"
+            name: "{{ server.name }}"
+            status: "{{ server.status | default('') }}"
+            created: "{{ server.created_at | default('') }}"
+            updated: "{{ server.updated_at | default('') }}"
+            description: "{{ server.description | default('') }}"
+            key_name: "{{ server.key_name | default('') }}"
+            availability_zone: "{{ server.availability_zone | default('') }}"
+            flavor: "{{ server.flavor | default({}) }}"
+            image: "{{ server.image | default({}) }}"
+            metadata: "{{ server.metadata | default({}) }}"
+            tags: "{{ server.tags | default([]) }}"
+            config_drive: "{{ server.config_drive | default('') }}"
+          networking:
+            addresses: "{{ server.addresses | default({}) }}"
+            ports: "{{ ports.ports | default([]) }}"
+          volumes:
+            attachments: "{{ vol_attachments }}"
+            details: >-
+              {{
+                (vol_details.results | default([]))
+                | map(attribute='volumes')
+                | list
+                | flatten
+              }}
+
+    - name: Write manifest.json
+      ansible.builtin.copy:
+        dest: "{{ export_root }}/{{ vm_name }}/manifest.json"
+        content: "{{ manifest | to_nice_json }}"
+        mode: "0664"
+
+    - name: Write manifest.yaml
+      ansible.builtin.copy:
+        dest: "{{ export_root }}/{{ vm_name }}/manifest.yaml"
+        content: "{{ manifest | to_nice_yaml }}"
+        mode: "0664"
+
+    - name: Show where files are
+      ansible.builtin.debug:
+        msg:
+          - "Saved: {{ export_root }}/{{ vm_name }}/manifest.json"
+          - "Saved: {{ export_root }}/{{ vm_name }}/manifest.yaml"
