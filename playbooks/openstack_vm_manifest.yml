@@ -4,24 +4,26 @@
   gather_facts: false
 
   vars:
-    # change this in AWX Survey/extra_vars
     vm_name: "test"
     export_root: "/exports"
 
   tasks:
-    - name: Get server details by name
+    - name: Get all servers in project
       openstack.cloud.server_info:
-        server: "{{ vm_name }}"
       register: srv
 
-    - name: Fail if VM not found
-      ansible.builtin.fail:
-        msg: "VM '{{ vm_name }}' not found in this OpenStack project."
-      when: (srv.servers | length) == 0
-
-    - name: Pick first match
+    - name: Filter exact match by name
       ansible.builtin.set_fact:
-        server: "{{ srv.servers[0] }}"
+        matches: "{{ srv.servers | selectattr('name','equalto', vm_name) | list }}"
+
+    - name: Fail if VM not found (exact match)
+      ansible.builtin.fail:
+        msg: "VM '{{ vm_name }}' not found (exact match). Available: {{ srv.servers | map(attribute='name') | list }}"
+      when: matches | length == 0
+
+    - name: Pick VM
+      ansible.builtin.set_fact:
+        server: "{{ matches[0] }}"
 
     - name: Get ports for this VM (IPs, SGs, networks)
       openstack.cloud.port_info:
@@ -29,7 +31,7 @@
           device_id: "{{ server.id }}"
       register: ports
 
-    - name: Get volume attachments from server
+    - name: Volume attachments from server
       ansible.builtin.set_fact:
         vol_attachments: "{{ server.volumes | default([]) }}"
 
@@ -57,14 +59,12 @@
             status: "{{ server.status | default('') }}"
             created: "{{ server.created_at | default('') }}"
             updated: "{{ server.updated_at | default('') }}"
-            description: "{{ server.description | default('') }}"
             key_name: "{{ server.key_name | default('') }}"
             availability_zone: "{{ server.availability_zone | default('') }}"
             flavor: "{{ server.flavor | default({}) }}"
             image: "{{ server.image | default({}) }}"
             metadata: "{{ server.metadata | default({}) }}"
             tags: "{{ server.tags | default([]) }}"
-            config_drive: "{{ server.config_drive | default('') }}"
           networking:
             addresses: "{{ server.addresses | default({}) }}"
             ports: "{{ ports.ports | default([]) }}"
@@ -90,8 +90,9 @@
         content: "{{ manifest | to_nice_yaml }}"
         mode: "0664"
 
-    - name: Show where files are
+    - name: Show saved files
       ansible.builtin.debug:
         msg:
           - "Saved: {{ export_root }}/{{ vm_name }}/manifest.json"
           - "Saved: {{ export_root }}/{{ vm_name }}/manifest.yaml"
+          - "VM ID: {{ server.id }}"
