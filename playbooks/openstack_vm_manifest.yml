@@ -35,12 +35,13 @@
       ansible.builtin.set_fact:
         vol_attachments: "{{ server.volumes | default([]) }}"
 
-    - name: Fetch volume details (if any)
+    # Try best-effort volume details lookup by ID (module doesn't support filters in your version)
+    - name: Fetch volume details (best effort) by volume id
       openstack.cloud.volume_info:
-        filters:
-          id: "{{ item.id }}"
+        name: "{{ item.id }}"
       loop: "{{ vol_attachments }}"
       register: vol_details
+      failed_when: false
       when: vol_attachments | length > 0
 
     - name: Prepare export directory
@@ -77,6 +78,8 @@
                 | list
                 | flatten
               }}
+          notes:
+            volume_details_lookup: "Your openstack.cloud.volume_info module does not support filters; details fetched best-effort by ID as name, may be empty."
 
     - name: Write manifest.json
       ansible.builtin.copy:
@@ -90,9 +93,10 @@
         content: "{{ manifest | to_nice_yaml }}"
         mode: "0664"
 
-    - name: Show saved files
+    - name: Show saved files + vm id
       ansible.builtin.debug:
         msg:
           - "Saved: {{ export_root }}/{{ vm_name }}/manifest.json"
           - "Saved: {{ export_root }}/{{ vm_name }}/manifest.yaml"
           - "VM ID: {{ server.id }}"
+          - "Volumes attached: {{ vol_attachments | length }}"
