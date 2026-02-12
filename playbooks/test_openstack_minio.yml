@@ -5,7 +5,7 @@
 
   vars:
     # 🔹 CHANGE THESE
-    minio_endpoint: "http://MINIO-IP:9000"
+    minio_endpoint: "http://172.20.1.13:31228/"
     minio_bucket: "openstack-images"
     minio_access_key: "{{ lookup('env','MINIO_ACCESS_KEY') }}"
     minio_secret_key: "{{ lookup('env','MINIO_SECRET_KEY') }}"
