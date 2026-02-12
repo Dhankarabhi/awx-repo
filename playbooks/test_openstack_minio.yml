@@ -1,25 +1,28 @@
 ---
-- name: Precheck OpenStack + MinIO
+- name: Precheck OpenStack + MinIO (Streaming Safe)
   hosts: localhost
   gather_facts: false
 
   vars:
-    minio_endpoint: "http://172.20.1.13:31228/"
+    # 🔹 CHANGE THESE
+    minio_endpoint: "http://MINIO-IP:9000"
     minio_bucket: "openstack-images"
     minio_access_key: "{{ lookup('env','MINIO_ACCESS_KEY') }}"
     minio_secret_key: "{{ lookup('env','MINIO_SECRET_KEY') }}"
-    minio_region: none
 
   tasks:
-    - name: Check OpenStack token by listing 1 server
+
+    - name: Check OpenStack auth by listing servers
       openstack.cloud.server_info:
       register: srv
 
-    - name: OpenStack OK
+    - name: Show OpenStack result
       ansible.builtin.debug:
-        msg: "OpenStack auth OK. Servers seen: {{ (srv.servers | length) }}"
+        msg:
+          - "OpenStack auth OK ✅"
+          - "Servers visible: {{ srv.servers | length }}"
 
-    - name: Upload a tiny test object to MinIO (boto3 path-style)
+    - name: Upload tiny test object to MinIO (boto3 path-style)
       ansible.builtin.command: python3 - <<'PY'
 import os
 import boto3
@@ -40,6 +43,7 @@ s3 = boto3.client(
     config=Config(s3={"addressing_style": "path"}),
 )
 
+# Upload test object
 s3.put_object(Bucket=bucket, Key=key, Body=b"hello from awx")
 print("OK uploaded:", f"s3://{bucket}/{key}")
 PY
@@ -49,3 +53,9 @@ PY
         MINIO_ACCESS_KEY: "{{ minio_access_key }}"
         MINIO_SECRET_KEY: "{{ minio_secret_key }}"
         OBJECT_KEY: "awx-tests/{{ lookup('pipe','date -u +%Y%m%dT%H%M%SZ') }}-hello.txt"
+
+    - name: Success message
+      ansible.builtin.debug:
+        msg:
+          - "MinIO upload test successful ✅"
+          - "Environment ready for snapshot backup 🚀"
