@@ -19,13 +19,33 @@
       ansible.builtin.debug:
         msg: "OpenStack auth OK. Servers seen: {{ (srv.servers | length) }}"
 
-    - name: Upload a tiny test object to MinIO
-      amazon.aws.s3_object:
-        mode: put
-        endpoint_url: "{{ minio_endpoint }}"
-        region: "{{ minio_region }}"
-        aws_access_key: "{{ minio_access_key }}"
-        aws_secret_key: "{{ minio_secret_key }}"
-        bucket: "{{ minio_bucket }}"
-        object: "awx-tests/{{ lookup('pipe','date -u +%Y%m%dT%H%M%SZ') }}-hello.txt"
-        content: "hello from awx"
+    - name: Upload a tiny test object to MinIO (boto3 path-style)
+      ansible.builtin.command: python3 - <<'PY'
+import os
+import boto3
+from botocore.config import Config
+
+endpoint = os.environ["MINIO_ENDPOINT"]
+bucket   = os.environ["MINIO_BUCKET"]
+ak       = os.environ["MINIO_ACCESS_KEY"]
+sk       = os.environ["MINIO_SECRET_KEY"]
+key      = os.environ["OBJECT_KEY"]
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url=endpoint,
+    aws_access_key_id=ak,
+    aws_secret_access_key=sk,
+    region_name="us-east-1",
+    config=Config(s3={"addressing_style": "path"}),
+)
+
+s3.put_object(Bucket=bucket, Key=key, Body=b"hello from awx")
+print("OK uploaded:", f"s3://{bucket}/{key}")
+PY
+      environment:
+        MINIO_ENDPOINT: "{{ minio_endpoint }}"
+        MINIO_BUCKET: "{{ minio_bucket }}"
+        MINIO_ACCESS_KEY: "{{ minio_access_key }}"
+        MINIO_SECRET_KEY: "{{ minio_secret_key }}"
+        OBJECT_KEY: "awx-tests/{{ lookup('pipe','date -u +%Y%m%dT%H%M%SZ') }}-hello.txt"
