@@ -1,0 +1,31 @@
+---
+- name: Precheck OpenStack + MinIO
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    minio_endpoint: "http://172.20.1.13:31228/"
+    minio_bucket: "openstack-images"
+    minio_access_key: "{{ lookup('env','MINIO_ACCESS_KEY') }}"
+    minio_secret_key: "{{ lookup('env','MINIO_SECRET_KEY') }}"
+    minio_region: none
+
+  tasks:
+    - name: Check OpenStack token by listing 1 server
+      openstack.cloud.server_info:
+      register: srv
+
+    - name: OpenStack OK
+      ansible.builtin.debug:
+        msg: "OpenStack auth OK. Servers seen: {{ (srv.servers | length) }}"
+
+    - name: Upload a tiny test object to MinIO
+      amazon.aws.s3_object:
+        mode: put
+        endpoint_url: "{{ minio_endpoint }}"
+        region: "{{ minio_region }}"
+        aws_access_key: "{{ minio_access_key }}"
+        aws_secret_key: "{{ minio_secret_key }}"
+        bucket: "{{ minio_bucket }}"
+        object: "awx-tests/{{ lookup('pipe','date -u +%Y%m%dT%H%M%SZ') }}-hello.txt"
+        content: "hello from awx"
