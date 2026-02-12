@@ -4,13 +4,13 @@
   gather_facts: false
 
   vars:
-    # CHANGE THIS (small VM pick)
-    server_identifier: "72e347d4-cbd2-42a7-a897-8ef15fe0403d"
+    # CHANGE THIS
+    server_identifier: "SMALL-TEST-VM-NAME-OR-ID"
 
     backup_prefix: "test-snap"
 
     # CHANGE THIS
-    minio_endpoint: "http://172.20.1.13:31228/"
+    minio_endpoint: "http://MINIO-IP:9000"
     minio_bucket: "openstack-images"
 
     # From AWX credential env vars
@@ -20,7 +20,7 @@
     # Cleanup
     delete_glance_image_after_upload: true
 
-    # RAM buffer per part (smaller = safer for k3s)
+    # RAM buffer per part
     part_size_mb: 32
 
   tasks:
@@ -45,22 +45,31 @@
         image_name: "{{ backup_prefix }}-{{ srv.servers[0].name | regex_replace('[^A-Za-z0-9_.-]', '-') }}-{{ backup_ts }}"
         object_key: "snapshots/{{ srv.servers[0].name }}/{{ backup_ts }}/{{ backup_prefix }}-{{ srv.servers[0].name | regex_replace('[^A-Za-z0-9_.-]', '-') }}-{{ backup_ts }}.qcow2"
 
-    - name: Create snapshot image from server (Glance)
-      openstack.cloud.server_image:
-        server: "{{ server_id }}"
-        name: "{{ image_name }}"
-        wait: true
-        timeout: 7200
-      register: snap
+    - name: Create snapshot image from server (Glance) using OpenStack CLI
+      ansible.builtin.command: >
+        openstack server image create --name {{ image_name }} {{ server_id }}
+      changed_when: true
 
-    - name: Get image id
+    - name: Get created image id (by name)
+      ansible.builtin.command: >
+        openstack image show -f value -c id {{ image_name }}
+      register: img_id
+      changed_when: false
+
+    - name: Wait for image to become active
+      ansible.builtin.command: >
+        bash -lc 'for i in {1..240}; do
+          st=$(openstack image show -f value -c status {{ image_name }} 2>/dev/null || true);
+          if [ "$st" = "active" ]; then echo "active"; exit 0; fi;
+          if [ "$st" = "killed" ] || [ "$st" = "deleted" ]; then echo "bad:$st"; exit 2; fi;
+          sleep 15;
+        done; echo "timeout"; exit 1'
+      register: wait_img
+      changed_when: false
+
+    - name: Set image_id fact
       ansible.builtin.set_fact:
-        image_id: >-
-          {{
-            (snap.image.id
-             if (snap.image is defined and snap.image.id is defined)
-             else (snap.id if snap.id is defined else snap.image_id))
-          }}
+        image_id: "{{ img_id.stdout | trim }}"
 
     - name: Stream Glance image -> MinIO (multipart, path-style, no disk)
       ansible.builtin.command: |
@@ -80,10 +89,8 @@
 
         part_size = part_mb * 1024 * 1024
 
-        # OpenStack connection uses OS_* env vars (AWX OpenStack credential)
         conn = openstack.connect()
 
-        # MinIO client (force path-style addressing)
         s3 = boto3.client(
             "s3",
             endpoint_url=endpoint,
@@ -95,7 +102,6 @@
 
         img = conn.image.get_image(image_id)
 
-        # Multipart upload
         mpu = s3.create_multipart_upload(Bucket=bucket, Key=obj_key)
         upload_id = mpu["UploadId"]
         parts = []
@@ -144,8 +150,7 @@
 
             print(f"Uploaded: s3://{bucket}/{obj_key}")
 
-        except Exception as e:
-            # Abort multipart upload if anything fails
+        except Exception:
             try:
                 s3.abort_multipart_upload(Bucket=bucket, Key=obj_key, UploadId=upload_id)
             except Exception:
@@ -162,10 +167,10 @@
         PART_SIZE_MB: "{{ part_size_mb }}"
 
     - name: Cleanup - delete snapshot image from Glance (optional)
-      openstack.cloud.image:
-        state: absent
-        id: "{{ image_id }}"
+      ansible.builtin.command: >
+        openstack image delete {{ image_id }}
       when: delete_glance_image_after_upload | bool
+      changed_when: true
 
     - name: Result
       ansible.builtin.debug:
